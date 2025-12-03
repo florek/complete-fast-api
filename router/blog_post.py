@@ -1,4 +1,14 @@
+from typing import Optional
+
 from fastapi import APIRouter
+from pydantic import BaseModel
+
+
+class BlogModel(BaseModel):
+    title: str
+    content: str
+    nb_comments: int
+    published: Optional[bool]
 
 
 router = APIRouter(
@@ -7,5 +17,5 @@ router = APIRouter(
 )
 
 @router.post('/new')
-def create_blog():
-    pass
+def create_blog(blog: BlogModel):
+    return {'data': blog}
