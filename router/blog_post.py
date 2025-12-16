@@ -24,23 +24,25 @@ def create_blog(blog: BlogModel, id: int, version: int = 1):
         'version': version
     }
 
-@router.post('/new/{id}/comment')
+@router.post('/new/{id}/comment/{comment_id}')
 def create_comment(
     blog: BlogModel,
     id: int,
-    comment_id: int = Query(
+    comment_tile: int = Query(
         None,
-        title='Id of the comment',
-        description='Some description for comment_id',
-        alias='commentId',
+        title='Title of the comment',
+        description='Some description for comment_title',
+        alias='commentTitle',
         deprecated=True
     ),
     content: str = Body(..., min_length=10, max_length=1100, regex='^[a-z\\s]*$'), # ... -> obowiązkowe pole
-    v: Optional[List[str]] = Query(['1.0', '2.0', '3.0', '4.0', '5.0', '6.0'])
+    v: Optional[List[str]] = Query(['1.0', '2.0', '3.0', '4.0', '5.0', '6.0']),
+    comment_id: int = Path(..., gt=5, le=10)
 ):
     return {
         'blog': blog,
         'id': id,
+        'comment_title': comment_tile,
         'comment_id': comment_id,
         'content': content,
         'version': v

@@ -1,6 +1,5 @@
 # FastAPI Handbook – projekt `complete-fast-api`
 
-
 ---
 
 ## 1. Struktura aplikacji
@@ -13,9 +12,9 @@ app/
     └── blog_post.py
 ```
 
-- Aplikacja jest podzielona na **routery tematyczne**
-- Każdy router ma własny plik
-- `main.py` tylko skleja całość
+* Aplikacja jest podzielona na **routery tematyczne**
+* Każdy router ma własny plik
+* `main.py` tylko skleja całość
 
 ---
 
@@ -28,8 +27,8 @@ router = APIRouter(
 )
 ```
 
-- `prefix` – wspólny fragment URL dla endpointów
-- `tags` – grupowanie w Swagger UI (tylko dokumentacja)
+* `prefix` – wspólny fragment URL dla endpointów
+* `tags` – grupowanie w Swagger UI (tylko dokumentacja)
 
 ---
 
@@ -45,12 +44,14 @@ def get_blogs(page=1, page_size: Optional[int] = None):
 ```
 
 ### Co tu jest pokazane
-- `summary`, `description` → dokumentacja Swagger
-- `page` → query param z domyślną wartością
-- `page_size` → opcjonalny query param
+
+* `summary`, `description` → dokumentacja Swagger
+* `page` → query param z domyślną wartością
+* `page_size` → opcjonalny query param
 
 ### Zasada
-- Parametr niebędący w URL ani Body → **Query**
+
+* Parametr niebędący w URL ani Body → **Query**
 
 ---
 
@@ -62,11 +63,13 @@ def get_comments(id: int, comment_id: int, valid: bool = True, username: Optiona
 ```
 
 ### Co tu jest ważne
-- wiele parametrów Path (`id`, `comment_id`)
-- dodatkowe Query (`valid`, `username`)
-- osobny `tag` dla endpointu
+
+* wiele parametrów Path (`id`, `comment_id`)
+* dodatkowe Query (`valid`, `username`)
+* osobny `tag` dla endpointu
 
 ### Docstring
+
 Docstring jest widoczny w Swagger jako opis endpointu.
 
 ---
@@ -84,8 +87,9 @@ if id > 5:
 ```
 
 ### Wniosek
-- Można **dynamicznie zmieniać status HTTP**
-- `status_code` w dekoratorze to tylko domyślna wartość
+
+* Można **dynamicznie zmieniać status HTTP**
+* `status_code` w dekoratorze to tylko domyślna wartość
 
 ---
 
@@ -100,8 +104,9 @@ class BlogModel(BaseModel):
 ```
 
 ### Zasada
-- `BaseModel` = JSON Body
-- Automatyczna walidacja i dokumentacja
+
+* `BaseModel` = JSON Body
+* Automatyczna walidacja i dokumentacja
 
 ---
 
@@ -113,24 +118,25 @@ def create_blog(blog: BlogModel, id: int, version: int = 1):
 ```
 
 ### Mapowanie danych
-- `id` → Path
-- `version` → Query
-- `blog` → Body (model)
+
+* `id` → Path
+* `version` → Query
+* `blog` → Body (model)
 
 ---
 
 ## 8. Query params – alias, deprecated
 
 ```python
-comment_id: int = Query(
+comment_tile: int = Query(
     None,
-    alias='commentId',
+    alias='commentTitle',
     deprecated=True
 )
 ```
 
-- alias zmienia nazwę w URL
-- `deprecated` wpływa tylko na dokumentację
+* alias zmienia nazwę w URL
+* `deprecated` wpływa tylko na dokumentację
 
 ---
 
@@ -145,10 +151,10 @@ content: str = Body(
 )
 ```
 
-- `...` → pole wymagane
-- walidacja długości
-- regex
-- raw string (`r''`) zapobiega błędom `\s`
+* `...` → pole wymagane
+* walidacja długości
+* regex
+* raw string (`r''`) zapobiega błędom `\s`
 
 ---
 
@@ -159,6 +165,7 @@ v: Optional[List[str]] = Query(['1.0', '2.0', '3.0'])
 ```
 
 Request:
+
 ```http
 ?v=1.0&v=2.0&v=3.0
 ```
@@ -173,16 +180,137 @@ app.include_router(blog_get.router)
 app.include_router(blog_post.router)
 ```
 
-- aplikacja składa się z wielu routerów
-- routery można rozwijać niezależnie
+* aplikacja składa się z wielu routerów
+* routery można rozwijać niezależnie
 
 ---
 
-## 12. Zasady do zapamiętania (TL;DR)
+## 12. Walidacja parametrów Path (`Path`)
 
-- `BaseModel` → Body
-- `{param}` w URL → Path
-- reszta parametrów → Query
-- `Body(...)` → pole wymagane
-- `List[T]` w Query → wielokrotne parametry w URL
-- `Response` → dynamiczne statusy HTTP
+```python
+comment_id: int = Path(..., gt=5, le=10)
+```
+
+* `gt=5` → wartość > 5
+* `le=10` → wartość ≤ 10
+
+Walidacja wykonywana jest **przed wejściem do funkcji**.
+
+---
+
+## 13. Kolejność parametrów ≠ ich znaczenie
+
+FastAPI rozpoznaje parametry na podstawie **kontekstu**, a nie kolejności:
+
+* `{param}` w URL → Path
+* `BaseModel`, `Body()` → Body
+* reszta → Query
+
+---
+
+## 14. Alias Query ≠ nazwa zmiennej
+
+```python
+comment_tile  # Python
+commentTitle  # URL
+```
+
+Alias wpływa tylko na warstwę HTTP.
+
+---
+
+## 15. `deprecated=True` – tylko informacja
+
+* nie blokuje użycia
+* nie zmienia walidacji
+* widoczne tylko w Swagger UI
+
+---
+
+## 16. Wiele pól Body – pułapka
+
+```python
+blog: BlogModel
+content: str = Body(...)
+```
+
+FastAPI oczekuje wtedy JSON-a:
+
+```json
+{
+  "blog": { ... },
+  "content": "tekst"
+}
+```
+
+### Dobra praktyka
+
+➡️ jeden model `BaseModel` na endpoint
+
+---
+
+## 17. Regex w Body – konsekwencje
+
+```python
+regex='^[a-z\\s]*$'
+```
+
+Odrzuca:
+
+* wielkie litery
+* cyfry
+* znaki specjalne
+* polskie znaki
+
+---
+
+## 18. Lista domyślna w Query
+
+```python
+v: List[str] = Query(['1.0', '2.0', '3.0'])
+```
+
+* brak parametru → wartość domyślna
+* podanie `?v=` → nadpisuje domyślną
+
+---
+
+## 19. Metoda HTTP a walidacja
+
+Walidacja wykona się **tylko wtedy**, gdy:
+
+* zgadza się metoda (`GET`, `POST`, ...)
+* zgadza się ścieżka
+
+Inaczej endpoint **nie zostanie wywołany**.
+
+---
+
+## 20. Routing → Walidacja → Logika
+
+Mentalny model FastAPI:
+
+```
+Routing
+   ↓
+Walidacja
+   ↓
+Logika
+   ↓
+Response
+```
+
+Jeśli routing się nie zgadza → **walidacji nie będzie**.
+
+---
+
+## 21. Zasady do zapamiętania (TL;DR)
+
+* `BaseModel` → Body
+* `{param}` w URL → Path
+* reszta → Query
+* `Body(...)` → pole wymagane
+* `Path()` / `Query()` → walidacja
+* alias ≠ nazwa zmiennej
+* `deprecated=True` → tylko dokumentacja
+* routing ważniejszy niż walidacja
