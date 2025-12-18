@@ -51,7 +51,7 @@ def get_blogs(page=1, page_size: Optional[int] = None):
 
 ### Zasada
 
-* Parametr niebędący w URL ani Body → **Query**
+➡️ Parametr niebędący w URL ani Body → **Query**
 
 ---
 
@@ -67,10 +67,6 @@ def get_comments(id: int, comment_id: int, valid: bool = True, username: Optiona
 * wiele parametrów Path (`id`, `comment_id`)
 * dodatkowe Query (`valid`, `username`)
 * osobny `tag` dla endpointu
-
-### Docstring
-
-Docstring jest widoczny w Swagger jako opis endpointu.
 
 ---
 
@@ -290,7 +286,7 @@ Inaczej endpoint **nie zostanie wywołany**.
 
 Mentalny model FastAPI:
 
-```
+```text
 Routing
    ↓
 Walidacja
@@ -314,3 +310,110 @@ Jeśli routing się nie zgadza → **walidacji nie będzie**.
 * alias ≠ nazwa zmiennej
 * `deprecated=True` → tylko dokumentacja
 * routing ważniejszy niż walidacja
+
+---
+
+## 22. Zagnieżdżone modele (`BaseModel` w `BaseModel`)
+
+```python
+class Image(BaseModel):
+    url: str
+    alias: str
+
+class BlogModel(BaseModel):
+    ...
+    image: Optional[Image] = None
+```
+
+* pełna walidacja zagnieżdżonego JSON-a
+* automatyczna dokumentacja
+* pole opcjonalne
+
+---
+
+## 23. Kolekcje w Body (`List`, `Dict`)
+
+```python
+tags: List[str] = []
+metadata: Dict[str, str] = {'key1': 'val2'}
+```
+
+* `List[str]` → lista wartości
+* `Dict[str, str]` → mapowanie klucz–wartość
+* FastAPI waliduje typy elementów
+
+⚠️ **Uwaga**: mutable defaults to antywzorzec w czystym Pythonie – w Pydantic jest to bezpieczne, bo wartości są kopiowane.
+
+---
+
+## 24. Optional + domyślna wartość
+
+```python
+published: Optional[bool]
+image: Optional[Image] = None
+```
+
+* `Optional[T]` → może być `None`
+* brak pola w JSON = OK
+
+---
+
+## 25. Typowanie = dokumentacja
+
+Swagger UI generuje:
+
+* typy pól
+* które są wymagane
+* które są opcjonalne
+* strukturę zagnieżdżeń
+
+➡️ Typowanie **jest częścią kontraktu API**.
+
+---
+
+## 26. Importy `typing` – po co?
+
+```python
+from typing import Optional, List, Dict
+```
+
+* `Optional[T]` → `T | None`
+* `List[T]` → kolekcja
+* `Dict[K, V]` → mapa
+
+Bez nich FastAPI **nie wie**, jak walidować JSON.
+
+---
+
+## 27. Jeden endpoint = jeden kontrakt JSON
+
+```python
+@router.post('/new/{id}/comment/{comment_id}')
+def create_comment(...):
+```
+
+Ten endpoint oczekuje **jednocześnie**:
+
+* Path params
+* Query params
+* Body (model + pole `content`)
+
+➡️ im więcej elementów, tym **większa odpowiedzialność dokumentacji**.
+
+---
+
+## 28. Dobra praktyka produkcyjna
+
+* jeden `BaseModel` = jeden request body
+* walidację trzymać w modelach
+* regexy stosować ostrożnie
+* aliasy tylko gdy musisz (legacy API)
+* dokumentacja Swagger = część API
+
+---
+
+## 29. Mentalny skrót FastAPI
+
+> **FastAPI to deklaratywny kontrakt API oparty o typy**
+
+Nie piszesz walidacji – **opisujesz dane**, a framework robi resztę.

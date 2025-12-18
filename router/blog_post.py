@@ -1,7 +1,12 @@
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from fastapi import APIRouter, Query, Path, Body
 from pydantic import BaseModel
+
+
+class Image(BaseModel):
+    url: str
+    alias: str
 
 
 class BlogModel(BaseModel):
@@ -9,6 +14,9 @@ class BlogModel(BaseModel):
     content: str
     nb_comments: int
     published: Optional[bool]
+    tags: List[str] = []
+    metadata: Dict[str, str] = {'key1': 'val2'}
+    image: Optional[Image] = None
 
 
 router = APIRouter(
