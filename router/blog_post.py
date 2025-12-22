@@ -55,3 +55,7 @@ def create_comment(
         'content': content,
         'version': v
     }
+
+
+def required_functionality():
+    return {'message': 'Learning FAST API is important.'}

@@ -417,3 +417,112 @@ Ten endpoint oczekuje **jednocześnie**:
 > **FastAPI to deklaratywny kontrakt API oparty o typy**
 
 Nie piszesz walidacji – **opisujesz dane**, a framework robi resztę.
+## 30. Dependency Injection (`Depends`)
+
+FastAPI ma wbudowany mechanizm **Dependency Injection** – możesz “wstrzyknąć” wynik funkcji jako parametr endpointu.
+
+### Przykład dependency
+
+```python
+from fastapi import Depends
+
+def required_functionality():
+    return {'message': 'Learning FAST API is important.'}
+```
+
+### Użycie w endpointcie
+
+```python
+@router.get('/all')
+def get_blogs(
+    page: int = 1,
+    page_size: Optional[int] = None,
+    req_parameter: dict = Depends(required_functionality)
+):
+    return {
+        'message': f'All {page_size} blogs on page {page}',
+        'req': req_parameter
+    }
+```
+
+### Co tu jest ważne
+
+* `Depends(required_functionality)` → FastAPI wywołuje funkcję **przed** endpointem
+* wynik dependency trafia do parametru `req_parameter`
+* dependency służy do wydzielania wspólnej logiki (auth, kontekst, uprawnienia)
+
+---
+
+## 31. `Depends` nie pochodzi z requesta
+
+Dependency nie pochodzi z:
+
+* Path
+* Query
+* Body
+
+…ale nadal wpływa na wykonanie endpointu i może przygotować dane lub zablokować dostęp.
+
+---
+
+## 32. Rozszerzony model `BlogModel`
+
+```python
+class Image(BaseModel):
+    url: str
+    alias: str
+
+class BlogModel(BaseModel):
+    title: str
+    content: str
+    nb_comments: int
+    published: Optional[bool]
+    tags: List[str] = []
+    metadata: Dict[str, str] = {'key1': 'val2'}
+    image: Optional[Image] = None
+```
+
+### Co opisuje model
+
+* `tags` → lista stringów
+* `metadata` → słownik klucz–wartość
+* `image` → zagnieżdżony, walidowany JSON
+
+---
+
+## 33. Endpoint `create_comment` – miks Path + Query + Body
+
+```python
+@router.post('/new/{id}/comment/{comment_id}')
+def create_comment(
+    blog: BlogModel,                     # Body (model)
+    id: int,                             # Path
+    comment_tile: int = Query(           # Query (alias + deprecated)
+        None,
+        title='Title of the comment',
+        description='Some description for comment_title',
+        alias='commentTitle',
+        deprecated=True
+    ),
+    content: str = Body(                 # Body (pojedyncze pole)
+        ...,
+        min_length=10,
+        max_length=1100,
+        regex='^[a-z\\s]*$'
+    ),
+    v: Optional[List[str]] = Query(      # Query jako lista
+        ['1.0', '2.0', '3.0', '4.0', '5.0', '6.0']
+    ),
+    comment_id: int = Path(..., gt=5, le=10)  # Path
+):
+    pass
+```
+
+### Źródła danych
+
+* `blog` → Body (JSON)
+* `id`, `comment_id` → Path
+* `comment_tile`, `v` → Query
+* `content` → Body
+
+➡️ Jeden endpoint może łączyć **wszystkie typy parametrów naraz**.

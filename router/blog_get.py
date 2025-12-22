@@ -1,6 +1,8 @@
 from typing import Optional
 
-from fastapi import APIRouter, status, Response
+from fastapi import APIRouter, status, Response, Depends
+
+from router.blog_post import required_functionality
 
 router = APIRouter(
     prefix='/blog',
@@ -12,8 +14,8 @@ router = APIRouter(
     summary='Retrieve all blogs',
     description='This api call simulates fetching all blogs'
 )
-def get_blogs(page = 1, page_size: Optional[int] = None):
-    return {'message': f'All {page_size} blogs on page {page}'}
+def get_blogs(page = 1, page_size: Optional[int] = None, req_parameter: dict = Depends(required_functionality)):
+    return {'message': f'All {page_size} blogs on page {page}', 'req': req_parameter}
 
 
 @router.get('/{id}/comments/{comment_id}', tags=['comment'])
@@ -36,4 +38,3 @@ def get_blog(id: int, response: Response):
         return {'error': f'Blog {id} not found'}
     else:
         return {'message': f'Blog with id {id}'}
-
