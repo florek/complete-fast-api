@@ -5,16 +5,22 @@
 ## 1. Struktura aplikacji
 
 ```text
-app/
+complete-fast-api/
+├── db/
+│   └── database.py
+├── docs/
+│   └── summary.md
+├── router/
+│   ├── blog_get.py
+│   └── blog_post.py
 ├── main.py
-└── router/
-    ├── blog_get.py
-    └── blog_post.py
+└── requirements.txt
 ```
 
 * Aplikacja jest podzielona na **routery tematyczne**
 * Każdy router ma własny plik
 * `main.py` tylko skleja całość
+* `db/database.py` zawiera konfigurację bazy danych
 
 ---
 
@@ -526,3 +532,74 @@ def create_comment(
 * `content` → Body
 
 ➡️ Jeden endpoint może łączyć **wszystkie typy parametrów naraz**.
+
+---
+
+## 34. Konfiguracja bazy danych (SQLAlchemy)
+
+```python
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///./fastapi-practice.db"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+```
+
+### Komponenty
+
+* `SQLALCHEMY_DATABASE_URL` → connection string (SQLite w tym przypadku)
+* `engine` → silnik bazy danych, zarządza połączeniami
+* `SessionLocal` → fabryka sesji ORM (Object-Relational Mapping)
+* `Base` → klasa bazowa dla modeli SQLAlchemy
+
+### Uwagi
+
+* `connect_args={"check_same_thread": False}` → wymagane dla SQLite w FastAPI (SQLite domyślnie blokuje użycie w wielu wątkach)
+* `autocommit=False` → zmiany wymagają jawnego commit
+* `autoflush=False` → flush nie jest automatyczny (lepsza kontrola)
+
+---
+
+## 35. SQLite a FastAPI
+
+SQLite jest **thread-safe** tylko w trybie single-threaded. FastAPI działa asynchronicznie, więc:
+
+* `check_same_thread=False` → pozwala na użycie w wielu wątkach
+* ⚠️ **Uwaga**: w produkcji lepiej użyć PostgreSQL/MySQL z odpowiednim connection pooling
+
+---
+
+## 36. Sesja bazy danych w endpointach
+
+Aby użyć bazy danych w endpointach, należy:
+
+1. Utworzyć sesję z `SessionLocal()`
+2. Użyć jej w endpointzie
+3. Zamknąć po użyciu (lub użyć dependency)
+
+### Przykład (przyszły)
+
+```python
+from db.database import SessionLocal
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@router.get('/blogs')
+def get_blogs(db: Session = Depends(get_db)):
+    # użycie db do zapytań
+    pass
+```
+
+➡️ Dependency Injection idealnie nadaje się do zarządzania sesjami bazy danych.
