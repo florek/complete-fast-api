@@ -7,20 +7,24 @@
 ```text
 complete-fast-api/
 ├── db/
-│   └── database.py
+│   ├── database.py
+│   └── models.py
 ├── docs/
 │   └── summary.md
 ├── router/
 │   ├── blog_get.py
 │   └── blog_post.py
 ├── main.py
-└── requirements.txt
+├── requirements.txt
+└── fastapi-practice.db
 ```
 
 * Aplikacja jest podzielona na **routery tematyczne**
 * Każdy router ma własny plik
-* `main.py` tylko skleja całość
-* `db/database.py` zawiera konfigurację bazy danych
+* `main.py` skleja całość i inicjalizuje tabele bazy danych
+* `db/database.py` zawiera konfigurację bazy danych i funkcję `get_db()`
+* `db/models.py` zawiera modele SQLAlchemy (np. `DbUser`)
+* `fastapi-practice.db` to plik bazy danych SQLite
 
 ---
 
@@ -584,7 +588,7 @@ Aby użyć bazy danych w endpointach, należy:
 2. Użyć jej w endpointzie
 3. Zamknąć po użyciu (lub użyć dependency)
 
-### Przykład (przyszły)
+### Implementacja `get_db()`
 
 ```python
 from db.database import SessionLocal
@@ -595,6 +599,16 @@ def get_db():
         yield db
     finally:
         db.close()
+```
+
+Funkcja `get_db()` jest już zaimplementowana w `db/database.py` i używa generatora (`yield`) do zapewnienia poprawnego zamknięcia sesji.
+
+### Użycie w endpointzie
+
+```python
+from fastapi import Depends
+from sqlalchemy.orm import Session
+from db.database import get_db
 
 @router.get('/blogs')
 def get_blogs(db: Session = Depends(get_db)):
@@ -603,3 +617,72 @@ def get_blogs(db: Session = Depends(get_db)):
 ```
 
 ➡️ Dependency Injection idealnie nadaje się do zarządzania sesjami bazy danych.
+
+---
+
+## 37. Modele SQLAlchemy (`db/models.py`)
+
+```python
+from db.database import Base
+from sqlalchemy import Column, Integer, String
+
+class DbUser(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True)
+    password = Column(String)
+```
+
+### Co tu jest ważne
+
+* `Base` → klasa bazowa z `db/database.py`
+* `__tablename__` → nazwa tabeli w bazie danych
+* `Column` → definicja kolumny z typem i opcjami
+* `primary_key=True` → klucz główny
+* `index=True` → automatyczne tworzenie indeksu
+* `unique=True` → wartość unikalna
+
+---
+
+## 38. Inicjalizacja tabel w `main.py`
+
+```python
+import db.models as models
+from db.database import engine
+
+models.Base.metadata.create_all(bind=engine)
+```
+
+### Co to robi
+
+* `create_all()` → tworzy wszystkie tabele zdefiniowane w modelach
+* `bind=engine` → używa skonfigurowanego silnika bazy danych
+* Wywoływane przy starcie aplikacji
+
+### Uwaga
+
+* W produkcji lepiej użyć migracji (Alembic) zamiast `create_all()`
+* `create_all()` nie aktualizuje istniejących tabel, tylko tworzy nowe
+
+---
+
+## 39. Różnica między modelami Pydantic a SQLAlchemy
+
+### Pydantic (`BaseModel`)
+
+* Używane do **walidacji danych wejściowych/wyjściowych** API
+* Przykład: `BlogModel` w `router/blog_post.py`
+* Służą do komunikacji HTTP (request/response)
+
+### SQLAlchemy (`Base`)
+
+* Używane do **mapowania obiektowo-relacyjnego** (ORM)
+* Przykład: `DbUser` w `db/models.py`
+* Służą do komunikacji z bazą danych
+
+### Zasada
+
+➡️ **Pydantic** = walidacja API, **SQLAlchemy** = struktura bazy danych
+
+Można mieć osobne modele dla każdej warstwy lub użyć narzędzi do konwersji między nimi.
