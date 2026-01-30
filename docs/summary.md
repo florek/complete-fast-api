@@ -8,13 +8,17 @@
 complete-fast-api/
 ├── db/
 │   ├── database.py
+│   ├── db_user.py
+│   ├── hash.py
 │   └── models.py
 ├── docs/
 │   └── summary.md
 ├── router/
 │   ├── blog_get.py
-│   └── blog_post.py
+│   ├── blog_post.py
+│   └── user.py
 ├── main.py
+├── schemas.py
 ├── requirements.txt
 └── fastapi-practice.db
 ```
@@ -24,6 +28,9 @@ complete-fast-api/
 * `main.py` skleja całość i inicjalizuje tabele bazy danych
 * `db/database.py` zawiera konfigurację bazy danych i funkcję `get_db()`
 * `db/models.py` zawiera modele SQLAlchemy (np. `DbUser`)
+* `db/db_user.py` zawiera logikę biznesową dla użytkowników
+* `db/hash.py` zawiera funkcjonalność hashowania haseł
+* `schemas.py` zawiera schematy Pydantic dla walidacji danych
 * `fastapi-practice.db` to plik bazy danych SQLite
 
 ---
@@ -686,3 +693,208 @@ models.Base.metadata.create_all(bind=engine)
 ➡️ **Pydantic** = walidacja API, **SQLAlchemy** = struktura bazy danych
 
 Można mieć osobne modele dla każdej warstwy lub użyć narzędzi do konwersji między nimi.
+
+---
+
+## 40. Schematy Pydantic dla użytkowników (`schemas.py`)
+
+```python
+from pydantic import BaseModel
+
+class UserBase(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class UserDisplay(BaseModel):
+    username: str
+    email: str
+    class Config():
+        orm_mode = True
+```
+
+### Co tu jest ważne
+
+* `UserBase` → schemat wejściowy (request body) zawierający wszystkie pola, w tym hasło
+* `UserDisplay` → schemat wyjściowy (response) **bez hasła** (bezpieczeństwo)
+* `orm_mode = True` → pozwala na konwersję z obiektów SQLAlchemy do Pydantic
+
+### Zasada separacji schematów
+
+➡️ **Nigdy nie zwracaj hasła w odpowiedzi API** – użyj osobnego schematu wyjściowego.
+
+---
+
+## 41. ORM Mode w Pydantic (`orm_mode`)
+
+```python
+class UserDisplay(BaseModel):
+    username: str
+    email: str
+    class Config():
+        orm_mode = True
+```
+
+### Co to robi
+
+* `orm_mode = True` → pozwala Pydantic na odczyt danych z obiektów SQLAlchemy
+* Bez tego musiałbyś ręcznie konwertować: `username=db_user.username, email=db_user.email`
+* Z `orm_mode` możesz przekazać obiekt SQLAlchemy bezpośrednio: `UserDisplay.from_orm(db_user)`
+
+### Uwaga
+
+W Pydantic v2 `orm_mode` zostało zastąpione przez `from_attributes = True`, ale w tym projekcie używamy wersji zgodnej z v1.
+
+---
+
+## 42. Hashowanie haseł (`db/hash.py`)
+
+```python
+from passlib.context import CryptContext
+
+pwd_cxt = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+class Hash:
+    def bcrypt(password: str):
+        return pwd_cxt.hash(password)
+
+    def verify(hashed_password: str, plain_password: str):
+        return pwd_cxt.verify(plain_password, hashed_password)
+```
+
+### Co to robi
+
+* `CryptContext` → kontekst szyfrowania z biblioteki `passlib`
+* `schemes=["bcrypt"]` → używa algorytmu bcrypt do hashowania
+* `Hash.bcrypt()` → hashuje hasło przed zapisem do bazy
+* `Hash.verify()` → weryfikuje hasło przy logowaniu
+
+### Bezpieczeństwo
+
+➡️ **Nigdy nie przechowuj haseł w formie plaintext** – zawsze używaj hashowania.
+
+---
+
+## 43. Logika biznesowa użytkowników (`db/db_user.py`)
+
+```python
+from sqlalchemy.orm import Session
+from schemas import UserBase
+from db.models import DbUser
+from db.hash import Hash
+
+def create_user(db: Session, user: UserBase):
+    db_user = DbUser(
+        username=user.username, 
+        email=user.email, 
+        password=Hash.bcrypt(user.password)
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+```
+
+### Co tu się dzieje
+
+1. Tworzenie obiektu `DbUser` z danymi ze schematu `UserBase`
+2. Hashowanie hasła przed zapisem (`Hash.bcrypt()`)
+3. `db.add()` → dodanie do sesji
+4. `db.commit()` → zapis do bazy danych
+5. `db.refresh()` → odświeżenie obiektu (pobranie ID z bazy)
+6. Zwrócenie obiektu SQLAlchemy
+
+### Zasada separacji warstw
+
+➡️ **Logika biznesowa w osobnych plikach** (`db/db_user.py`), nie bezpośrednio w routerach.
+
+---
+
+## 44. Endpoint POST `/user/` – tworzenie użytkownika
+
+```python
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from schemas import UserBase, UserDisplay
+from db.database import get_db
+from db import db_user
+
+router = APIRouter(
+    prefix='/user',
+    tags=['user']
+)
+
+@router.post('/', response_model=UserDisplay)
+def create_user(request: UserBase, db: Session = Depends(get_db)):
+    return db_user.create_user(db, request)
+```
+
+### Co tu jest ważne
+
+* `response_model=UserDisplay` → określa format odpowiedzi (bez hasła)
+* `request: UserBase` → schemat wejściowy (walidacja)
+* `db: Session = Depends(get_db)` → dependency injection dla sesji bazy danych
+* Router deleguje logikę do `db_user.create_user()`
+
+### Flow danych
+
+```
+Request (UserBase) → Walidacja → db_user.create_user() → Hashowanie → Baza danych → Response (UserDisplay)
+```
+
+---
+
+## 45. Rejestracja routera użytkownika w `main.py`
+
+```python
+from router import user
+
+app = FastAPI()
+app.include_router(blog_get.router)
+app.include_router(blog_post.router)
+app.include_router(user.router)
+```
+
+### Endpointy dostępne
+
+* `POST /user/` → tworzenie nowego użytkownika
+
+---
+
+## 46. Zależności projektu (`requirements.txt`)
+
+Dodane zależności dla funkcjonalności użytkowników:
+
+* `passlib==1.7.4` → biblioteka do hashowania haseł
+* `bcrypt==4.3.0` → implementacja algorytmu bcrypt
+
+### Instalacja
+
+```bash
+pip install passlib bcrypt
+```
+
+---
+
+## 47. Architektura warstwowa – podsumowanie
+
+Projekt używa **architektury warstwowej**:
+
+```
+Router (router/user.py)
+    ↓
+Schematy (schemas.py) - walidacja
+    ↓
+Logika biznesowa (db/db_user.py)
+    ↓
+Modele SQLAlchemy (db/models.py)
+    ↓
+Baza danych (SQLite)
+```
+
+### Korzyści
+
+* **Separacja odpowiedzialności** → każda warstwa ma jedno zadanie
+* **Łatwość testowania** → można testować każdą warstwę osobno
+* **Łatwość utrzymania** → zmiany w jednej warstwie nie wpływają na inne
+* **Bezpieczeństwo** → hasła są hashowane, nie zwracane w odpowiedziach
