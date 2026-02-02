@@ -793,9 +793,17 @@ def create_user(db: Session, user: UserBase):
     db.commit()
     db.refresh(db_user)
     return db_user
+
+def get_all_users(db: Session):
+    return db.query(DbUser).all()
+
+def get_user(db: Session, id: int):
+    return db.query(DbUser).filter(DbUser.id == id).first()
 ```
 
-### Co tu się dzieje
+### Funkcje
+
+#### `create_user()`
 
 1. Tworzenie obiektu `DbUser` z danymi ze schematu `UserBase`
 2. Hashowanie hasła przed zapisem (`Hash.bcrypt()`)
@@ -804,13 +812,24 @@ def create_user(db: Session, user: UserBase):
 5. `db.refresh()` → odświeżenie obiektu (pobranie ID z bazy)
 6. Zwrócenie obiektu SQLAlchemy
 
+#### `get_all_users()`
+
+* `db.query(DbUser).all()` → pobiera wszystkich użytkowników z bazy danych
+* Zwraca listę obiektów `DbUser`
+
+#### `get_user()`
+
+* `db.query(DbUser).filter(DbUser.id == id).first()` → pobiera użytkownika po ID
+* `filter()` → filtruje wyniki według warunku
+* `first()` → zwraca pierwszy wynik lub `None` jeśli nie znaleziono
+
 ### Zasada separacji warstw
 
 ➡️ **Logika biznesowa w osobnych plikach** (`db/db_user.py`), nie bezpośrednio w routerach.
 
 ---
 
-## 44. Endpoint POST `/user/` – tworzenie użytkownika
+## 44. Endpointy użytkownika (`router/user.py`)
 
 ```python
 from fastapi import APIRouter, Depends
@@ -818,6 +837,7 @@ from sqlalchemy.orm import Session
 from schemas import UserBase, UserDisplay
 from db.database import get_db
 from db import db_user
+from typing import List
 
 router = APIRouter(
     prefix='/user',
@@ -827,20 +847,47 @@ router = APIRouter(
 @router.post('/', response_model=UserDisplay)
 def create_user(request: UserBase, db: Session = Depends(get_db)):
     return db_user.create_user(db, request)
+
+@router.get('/', response_model=List[UserDisplay])
+def get_all_users(db: Session = Depends(get_db)):
+    return db_user.get_all_users(db)
+
+@router.get('/{id}', response_model=UserDisplay)
+def get_user(id: int, db: Session = Depends(get_db)):
+    return db_user.get_user(db, id)
 ```
 
-### Co tu jest ważne
+### Endpointy
+
+#### POST `/user/` – tworzenie użytkownika
 
 * `response_model=UserDisplay` → określa format odpowiedzi (bez hasła)
 * `request: UserBase` → schemat wejściowy (walidacja)
 * `db: Session = Depends(get_db)` → dependency injection dla sesji bazy danych
 * Router deleguje logikę do `db_user.create_user()`
 
-### Flow danych
-
+**Flow danych:**
 ```
 Request (UserBase) → Walidacja → db_user.create_user() → Hashowanie → Baza danych → Response (UserDisplay)
 ```
+
+#### GET `/user/` – pobieranie wszystkich użytkowników
+
+* `response_model=List[UserDisplay]` → zwraca listę użytkowników (bez haseł)
+* `List[UserDisplay]` → typ z `typing` wskazuje, że odpowiedź to lista
+* Zwraca wszystkich użytkowników z bazy danych
+
+#### GET `/user/{id}` – pobieranie użytkownika po ID
+
+* `id: int` → parametr Path (z URL)
+* `response_model=UserDisplay` → format odpowiedzi (bez hasła)
+* Zwraca użytkownika o podanym ID lub `None` (co FastAPI zamieni na 404)
+
+### Zasady
+
+* Wszystkie endpointy używają `response_model` → zapewnia spójny format odpowiedzi
+* Dependency Injection dla sesji bazy danych → automatyczne zarządzanie połączeniem
+* Separacja logiki → routery tylko delegują do funkcji biznesowych
 
 ---
 
@@ -858,6 +905,8 @@ app.include_router(user.router)
 ### Endpointy dostępne
 
 * `POST /user/` → tworzenie nowego użytkownika
+* `GET /user/` → pobieranie wszystkich użytkowników
+* `GET /user/{id}` → pobieranie użytkownika po ID
 
 ---
 
@@ -876,7 +925,68 @@ pip install passlib bcrypt
 
 ---
 
-## 47. Architektura warstwowa – podsumowanie
+## 47. Query w SQLAlchemy – podstawy
+
+### Pobieranie wszystkich rekordów
+
+```python
+db.query(DbUser).all()
+```
+
+* `db.query(DbUser)` → tworzy zapytanie dla modelu `DbUser`
+* `.all()` → wykonuje zapytanie i zwraca wszystkie wyniki jako lista
+
+### Pobieranie z filtrem
+
+```python
+db.query(DbUser).filter(DbUser.id == id).first()
+```
+
+* `.filter(DbUser.id == id)` → dodaje warunek WHERE
+* `.first()` → zwraca pierwszy wynik lub `None` jeśli brak wyników
+
+### Inne metody
+
+* `.get(id)` → bezpośrednie pobranie po kluczu głównym (szybsze niż filter)
+* `.limit(n)` → ogranicza liczbę wyników
+* `.offset(n)` → pomija n pierwszych wyników (paginacja)
+
+---
+
+## 48. Response Model z listą (`List[UserDisplay]`)
+
+```python
+from typing import List
+
+@router.get('/', response_model=List[UserDisplay])
+def get_all_users(db: Session = Depends(get_db)):
+    return db_user.get_all_users(db)
+```
+
+### Co to robi
+
+* `List[UserDisplay]` → wskazuje FastAPI, że odpowiedź to lista obiektów `UserDisplay`
+* FastAPI automatycznie serializuje listę obiektów SQLAlchemy do JSON
+* Każdy element listy jest walidowany według schematu `UserDisplay`
+
+### Przykładowa odpowiedź
+
+```json
+[
+  {
+    "username": "john",
+    "email": "john@example.com"
+  },
+  {
+    "username": "jane",
+    "email": "jane@example.com"
+  }
+]
+```
+
+---
+
+## 49. Architektura warstwowa – podsumowanie
 
 Projekt używa **architektury warstwowej**:
 
@@ -898,3 +1008,4 @@ Baza danych (SQLite)
 * **Łatwość testowania** → można testować każdą warstwę osobno
 * **Łatwość utrzymania** → zmiany w jednej warstwie nie wpływają na inne
 * **Bezpieczeństwo** → hasła są hashowane, nie zwracane w odpowiedziach
+* **Reużywalność** → funkcje biznesowe można używać w różnych endpointach
