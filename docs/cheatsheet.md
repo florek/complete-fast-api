@@ -89,6 +89,15 @@ db.query(DbUser).filter(DbUser.id == id).first()
 db.add(db_user)
 db.commit()
 db.refresh(db_user)
+
+# Aktualizacja
+db_user.username = new_username
+db.commit()
+db.refresh(db_user)
+
+# Usunięcie
+db.delete(db_user)
+db.commit()
 ```
 
 ---
@@ -136,6 +145,26 @@ def get_users(db: Session = Depends(get_db)):
 
 ---
 
+## ⚠️ Obsługa Błędów (HTTPException)
+
+```python
+from fastapi import HTTPException, status
+
+@router.get('/{id}')
+def get_user(id: int, db: Session = Depends(get_db)):
+    user = db_user.get_user(db, id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='User not found'
+        )
+    return user
+```
+
+**Zasada:** Zawsze sprawdzaj czy obiekt istnieje przed operacjami (update, delete).
+
+---
+
 ## 🏗️ Architektura Warstwowa
 
 ```
@@ -158,6 +187,8 @@ Router → Schematy (walidacja) → Logika biznesowa → Modele SQLAlchemy → B
 8. ✅ Hasła zawsze hashowane, nigdy zwracane
 9. ✅ Logika biznesowa w osobnych plikach
 10. ✅ `db.commit()` po zmianach w bazie
+11. ✅ Sprawdzaj `if not obj:` przed operacjami na obiektach
+12. ✅ Używaj `HTTPException` dla błędów (404, 400, etc.)
 
 ---
 
@@ -200,11 +231,14 @@ class BlogModel(BaseModel):
 - `POST /user/` - tworzenie użytkownika
 - `GET /user/` - lista użytkowników
 - `GET /user/{id}` - pojedynczy użytkownik
+- `POST /user/{id}/update` - aktualizacja użytkownika
+- `DELETE /user/{id}/delete` - usunięcie użytkownika
 
 ---
 
-## 🚀 Flow Tworzenia Użytkownika
+## 🚀 Flow Operacji CRUD
 
+### CREATE (Tworzenie)
 ```
 POST /user/
   ↓
@@ -219,17 +253,105 @@ DbUser → db.add() → db.commit()
 UserDisplay (response, bez hasła)
 ```
 
+### READ (Odczyt)
+```
+GET /user/{id}
+  ↓
+db_user.get_user(id)
+  ↓
+Sprawdzenie if not user → HTTPException 404
+  ↓
+UserDisplay (response)
+```
+
+### UPDATE (Aktualizacja)
+```
+POST /user/{id}/update
+  ↓
+UserBase (walidacja)
+  ↓
+db_user.update_user(id)
+  ↓
+Sprawdzenie if not db_user → return None
+  ↓
+db_user.username = ... → db.commit()
+  ↓
+UserDisplay (response)
+```
+
+### DELETE (Usunięcie)
+```
+DELETE /user/{id}/delete
+  ↓
+db_user.delete_user(id)
+  ↓
+Sprawdzenie if not db_user → return None
+  ↓
+db.delete(db_user) → db.commit()
+  ↓
+{'message': 'User deleted successfully'}
+```
+
 ---
 
 ## 💡 Przydatne Importy
 
 ```python
-from fastapi import FastAPI, APIRouter, Depends, Query, Path, Body, status
+from fastapi import FastAPI, APIRouter, Depends, Query, Path, Body, status, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict
 from db.database import get_db, Base
 from db.models import DbUser
+```
+
+---
+
+## 🔧 Przykłady Funkcji CRUD
+
+### Create
+```python
+def create_user(db: Session, user: UserBase):
+    db_user = DbUser(
+        username=user.username,
+        email=user.email,
+        password=Hash.bcrypt(user.password)
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+```
+
+### Read
+```python
+def get_user(db: Session, id: int):
+    return db.query(DbUser).filter(DbUser.id == id).first()
+```
+
+### Update
+```python
+def update_user(db: Session, id: int, user: UserBase):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    db_user.username = user.username
+    db_user.email = user.email
+    db_user.password = Hash.bcrypt(user.password)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+```
+
+### Delete
+```python
+def delete_user(db: Session, id: int):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    db.delete(db_user)
+    db.commit()
+    return {'message': 'User deleted successfully'}
 ```
 
 ---
