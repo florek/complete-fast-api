@@ -799,6 +799,25 @@ def get_all_users(db: Session):
 
 def get_user(db: Session, id: int):
     return db.query(DbUser).filter(DbUser.id == id).first()
+
+def update_user(db: Session, id: int, user: UserBase):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    db_user.username = user.username
+    db_user.email = user.email
+    db_user.password = Hash.bcrypt(user.password)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def delete_user(db: Session, id: int):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    db.delete(db_user)
+    db.commit()
+    return {'message': 'User deleted successfully'}
 ```
 
 ### Funkcje
@@ -823,6 +842,28 @@ def get_user(db: Session, id: int):
 * `filter()` → filtruje wyniki według warunku
 * `first()` → zwraca pierwszy wynik lub `None` jeśli nie znaleziono
 
+#### `update_user()`
+
+1. Pobranie użytkownika z bazy po ID
+2. **Sprawdzenie czy użytkownik istnieje** → jeśli `None`, zwraca `None`
+3. Aktualizacja pól przez bezpośrednie przypisanie atrybutów
+4. Hashowanie nowego hasła przed zapisem
+5. `db.commit()` → zapis zmian do bazy
+6. `db.refresh()` → odświeżenie obiektu
+7. Zwrócenie zaktualizowanego obiektu
+
+**Ważne:** Obiekty SQLAlchemy nie mają metody `update()`. Używamy bezpośredniego przypisania atrybutów.
+
+#### `delete_user()`
+
+1. Pobranie użytkownika z bazy po ID
+2. **Sprawdzenie czy użytkownik istnieje** → jeśli `None`, zwraca `None`
+3. `db.delete(db_user)` → oznaczenie obiektu do usunięcia
+4. `db.commit()` → wykonanie usunięcia w bazie
+5. Zwrócenie komunikatu sukcesu
+
+**Ważne:** Zawsze sprawdzaj czy obiekt istnieje przed operacją `db.delete()`, w przeciwnym razie wystąpi błąd `UnmappedInstanceError`.
+
 ### Zasada separacji warstw
 
 ➡️ **Logika biznesowa w osobnych plikach** (`db/db_user.py`), nie bezpośrednio w routerach.
@@ -832,7 +873,7 @@ def get_user(db: Session, id: int):
 ## 44. Endpointy użytkownika (`router/user.py`)
 
 ```python
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.orm import Session
 from schemas import UserBase, UserDisplay
 from db.database import get_db
@@ -854,7 +895,24 @@ def get_all_users(db: Session = Depends(get_db)):
 
 @router.get('/{id}', response_model=UserDisplay)
 def get_user(id: int, db: Session = Depends(get_db)):
-    return db_user.get_user(db, id)
+    user = db_user.get_user(db, id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+    return user
+
+@router.post('/{id}/update', response_model=UserDisplay)
+def update_user(id: int, request: UserBase, db: Session = Depends(get_db)):
+    user = db_user.update_user(db, id, request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+    return user
+
+@router.delete('/{id}/delete')
+def delete_user(id: int, db: Session = Depends(get_db)):
+    result = db_user.delete_user(db, id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+    return result
 ```
 
 ### Endpointy
@@ -881,13 +939,60 @@ Request (UserBase) → Walidacja → db_user.create_user() → Hashowanie → Ba
 
 * `id: int` → parametr Path (z URL)
 * `response_model=UserDisplay` → format odpowiedzi (bez hasła)
-* Zwraca użytkownika o podanym ID lub `None` (co FastAPI zamieni na 404)
+* Sprawdzenie czy użytkownik istnieje → jeśli `None`, rzuca `HTTPException` z kodem 404
+* Zwraca użytkownika o podanym ID
+
+#### POST `/user/{id}/update` – aktualizacja użytkownika
+
+* `id: int` → parametr Path (z URL)
+* `request: UserBase` → schemat wejściowy z nowymi danymi
+* `response_model=UserDisplay` → format odpowiedzi (bez hasła)
+* Wywołuje `db_user.update_user()` → zwraca `None` jeśli użytkownik nie istnieje
+* Sprawdzenie wyniku → jeśli `None`, rzuca `HTTPException` z kodem 404
+* Zwraca zaktualizowanego użytkownika
+
+**Flow danych:**
+```
+Request (UserBase) → Walidacja → db_user.update_user() → Sprawdzenie istnienia → Aktualizacja pól → Hashowanie hasła → db.commit() → Response (UserDisplay)
+```
+
+#### DELETE `/user/{id}/delete` – usunięcie użytkownika
+
+* `id: int` → parametr Path (z URL)
+* Brak `response_model` → zwraca dowolny format (w tym przypadku słownik)
+* Wywołuje `db_user.delete_user()` → zwraca `None` jeśli użytkownik nie istnieje
+* Sprawdzenie wyniku → jeśli `None`, rzuca `HTTPException` z kodem 404
+* Zwraca komunikat sukcesu: `{'message': 'User deleted successfully'}`
+
+**Flow danych:**
+```
+DELETE Request → db_user.delete_user() → Sprawdzenie istnienia → db.delete() → db.commit() → Response (komunikat)
+```
+
+### Obsługa błędów
+
+Wszystkie endpointy, które operują na istniejących użytkownikach (`get_user`, `update_user`, `delete_user`), używają **HTTPException** do obsługi przypadku, gdy użytkownik nie istnieje:
+
+```python
+if not user:
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail='User not found'
+    )
+```
+
+**Dlaczego to ważne:**
+* Bez sprawdzenia, próba operacji na `None` spowodowałaby błąd serwera (500)
+* Z `HTTPException` klient otrzymuje czytelny komunikat błędu (404)
+* Status code 404 jest standardowym kodem dla "nie znaleziono"
 
 ### Zasady
 
 * Wszystkie endpointy używają `response_model` → zapewnia spójny format odpowiedzi
 * Dependency Injection dla sesji bazy danych → automatyczne zarządzanie połączeniem
 * Separacja logiki → routery tylko delegują do funkcji biznesowych
+* **Zawsze sprawdzaj istnienie obiektu** przed operacjami (update, delete, get)
+* **Używaj HTTPException** dla błędów zamiast zwracać `None` bezpośrednio
 
 ---
 
@@ -907,6 +1012,8 @@ app.include_router(user.router)
 * `POST /user/` → tworzenie nowego użytkownika
 * `GET /user/` → pobieranie wszystkich użytkowników
 * `GET /user/{id}` → pobieranie użytkownika po ID
+* `POST /user/{id}/update` → aktualizacja użytkownika
+* `DELETE /user/{id}/delete` → usunięcie użytkownika
 
 ---
 
@@ -986,7 +1093,255 @@ def get_all_users(db: Session = Depends(get_db)):
 
 ---
 
-## 49. Architektura warstwowa – podsumowanie
+## 50. HTTPException – obsługa błędów w FastAPI
+
+FastAPI udostępnia klasę `HTTPException` do obsługi błędów HTTP w endpointach.
+
+### Import
+
+```python
+from fastapi import HTTPException, status
+```
+
+### Podstawowe użycie
+
+```python
+@router.get('/{id}')
+def get_user(id: int, db: Session = Depends(get_db)):
+    user = db_user.get_user(db, id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='User not found'
+        )
+    return user
+```
+
+### Parametry HTTPException
+
+* `status_code` → kod statusu HTTP (np. `status.HTTP_404_NOT_FOUND`)
+* `detail` → komunikat błędu (string lub dict)
+* `headers` → opcjonalne nagłówki HTTP
+
+### Dostępne kody statusu
+
+```python
+from fastapi import status
+
+status.HTTP_200_OK          # 200
+status.HTTP_201_CREATED     # 201
+status.HTTP_400_BAD_REQUEST # 400
+status.HTTP_401_UNAUTHORIZED # 401
+status.HTTP_404_NOT_FOUND   # 404
+status.HTTP_500_INTERNAL_SERVER_ERROR # 500
+```
+
+### Przykład z walidacją
+
+```python
+@router.post('/{id}/update')
+def update_user(id: int, request: UserBase, db: Session = Depends(get_db)):
+    user = db_user.update_user(db, id, request)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='User not found'
+        )
+    return user
+```
+
+### Różnica między `return None` a `raise HTTPException`
+
+**❌ Źle:**
+```python
+def get_user(id: int):
+    user = db_user.get_user(db, id)
+    return user  # Zwróci None, FastAPI zamieni na 200 OK z null
+```
+
+**✅ Dobrze:**
+```python
+def get_user(id: int):
+    user = db_user.get_user(db, id)
+    if not user:
+        raise HTTPException(status_code=404, detail='User not found')
+    return user  # Zwróci użytkownika lub błąd 404
+```
+
+### Zasada
+
+➡️ **Zawsze używaj HTTPException dla błędów** zamiast zwracać `None` lub puste wartości. Daje to czytelne komunikaty błędów i poprawne kody statusu HTTP.
+
+---
+
+## 51. Aktualizacja danych w SQLAlchemy
+
+### Bezpośrednie przypisanie atrybutów
+
+```python
+def update_user(db: Session, id: int, user: UserBase):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    
+    db_user.username = user.username
+    db_user.email = user.email
+    db_user.password = Hash.bcrypt(user.password)
+    
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+```
+
+### Co się dzieje
+
+1. Pobranie obiektu z bazy danych
+2. **Bezpośrednie przypisanie** wartości do atrybutów obiektu
+3. `db.commit()` → zapis zmian do bazy danych
+4. `db.refresh()` → odświeżenie obiektu (pobranie najnowszych danych z bazy)
+
+### Ważne uwagi
+
+* **Obiekty SQLAlchemy nie mają metody `update()`** → używamy bezpośredniego przypisania
+* Zmiany są śledzone przez SQLAlchemy automatycznie (dirty tracking)
+* `commit()` jest wymagany do zapisania zmian
+* `refresh()` nie jest zawsze konieczny, ale zapewnia aktualne dane
+
+### Błąd: próba użycia `update()`
+
+```python
+# ❌ To nie zadziała
+db_user.update({
+    'username': user.username,
+    'email': user.email
+})
+# AttributeError: 'DbUser' object has no attribute 'update'
+```
+
+---
+
+## 52. Usuwanie danych w SQLAlchemy
+
+### Usuwanie pojedynczego rekordu
+
+```python
+def delete_user(db: Session, id: int):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    
+    db.delete(db_user)
+    db.commit()
+    return {'message': 'User deleted successfully'}
+```
+
+### Co się dzieje
+
+1. Pobranie obiektu z bazy danych
+2. **Sprawdzenie czy obiekt istnieje** → krytyczne!
+3. `db.delete(db_user)` → oznaczenie obiektu do usunięcia
+4. `db.commit()` → wykonanie usunięcia w bazie danych
+
+### Ważne: zawsze sprawdzaj istnienie
+
+**❌ Błąd bez sprawdzenia:**
+```python
+def delete_user(db: Session, id: int):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    db.delete(db_user)  # Błąd jeśli db_user jest None!
+    db.commit()
+```
+
+**Błąd:**
+```
+sqlalchemy.orm.exc.UnmappedInstanceError: Class 'builtins.NoneType' is not mapped
+```
+
+**✅ Poprawnie:**
+```python
+def delete_user(db: Session, id: int):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    db.delete(db_user)
+    db.commit()
+```
+
+### Zasada
+
+➡️ **Zawsze sprawdzaj czy obiekt istnieje przed `db.delete()`**, w przeciwnym razie wystąpi błąd `UnmappedInstanceError`.
+
+---
+
+## 53. Kompletny CRUD – podsumowanie operacji
+
+### CREATE (Tworzenie)
+
+```python
+def create_user(db: Session, user: UserBase):
+    db_user = DbUser(...)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+```
+
+**Endpoint:** `POST /user/`
+
+### READ (Odczyt)
+
+```python
+# Wszystkie
+def get_all_users(db: Session):
+    return db.query(DbUser).all()
+
+# Pojedynczy
+def get_user(db: Session, id: int):
+    return db.query(DbUser).filter(DbUser.id == id).first()
+```
+
+**Endpointy:** `GET /user/`, `GET /user/{id}`
+
+### UPDATE (Aktualizacja)
+
+```python
+def update_user(db: Session, id: int, user: UserBase):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    db_user.username = user.username
+    db_user.email = user.email
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+```
+
+**Endpoint:** `POST /user/{id}/update`
+
+### DELETE (Usunięcie)
+
+```python
+def delete_user(db: Session, id: int):
+    db_user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not db_user:
+        return None
+    db.delete(db_user)
+    db.commit()
+    return {'message': 'User deleted successfully'}
+```
+
+**Endpoint:** `DELETE /user/{id}/delete`
+
+### Wspólne wzorce
+
+1. **Sprawdzanie istnienia** → dla READ, UPDATE, DELETE
+2. **HTTPException** → w routerach dla obsługi błędów
+3. **db.commit()** → po każdej zmianie (CREATE, UPDATE, DELETE)
+4. **db.refresh()** → po CREATE i UPDATE (opcjonalne, ale zalecane)
+
+---
+
+## 54. Architektura warstwowa – podsumowanie
 
 Projekt używa **architektury warstwowej**:
 
