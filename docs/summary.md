@@ -8,12 +8,14 @@
 complete-fast-api/
 ├── db/
 │   ├── database.py
+│   ├── db_article.py
 │   ├── db_user.py
 │   ├── hash.py
 │   └── models.py
 ├── docs/
 │   └── summary.md
 ├── router/
+│   ├── article.py
 │   ├── blog_get.py
 │   ├── blog_post.py
 │   └── user.py
@@ -27,10 +29,11 @@ complete-fast-api/
 * Każdy router ma własny plik
 * `main.py` skleja całość i inicjalizuje tabele bazy danych
 * `db/database.py` zawiera konfigurację bazy danych i funkcję `get_db()`
-* `db/models.py` zawiera modele SQLAlchemy (np. `DbUser`)
+* `db/models.py` zawiera modele SQLAlchemy (`DbUser`, `DbArticle`) z relacjami
 * `db/db_user.py` zawiera logikę biznesową dla użytkowników
+* `db/db_article.py` zawiera logikę biznesową dla artykułów
 * `db/hash.py` zawiera funkcjonalność hashowania haseł
-* `schemas.py` zawiera schematy Pydantic dla walidacji danych
+* `schemas.py` zawiera schematy Pydantic dla walidacji danych (w tym zagnieżdżone modele)
 * `fastapi-practice.db` to plik bazy danych SQLite
 
 ---
@@ -996,24 +999,30 @@ if not user:
 
 ---
 
-## 45. Rejestracja routera użytkownika w `main.py`
+## 45. Rejestracja routerów w `main.py`
 
 ```python
-from router import user
+from router import user, article
 
 app = FastAPI()
 app.include_router(blog_get.router)
 app.include_router(blog_post.router)
 app.include_router(user.router)
+app.include_router(article.router)
 ```
 
 ### Endpointy dostępne
 
+#### User
 * `POST /user/` → tworzenie nowego użytkownika
 * `GET /user/` → pobieranie wszystkich użytkowników
 * `GET /user/{id}` → pobieranie użytkownika po ID
 * `POST /user/{id}/update` → aktualizacja użytkownika
 * `DELETE /user/{id}/delete` → usunięcie użytkownika
+
+#### Article
+* `POST /article/` → tworzenie nowego artykułu
+* `GET /article/{id}` → pobieranie artykułu po ID (z zagnieżdżonym użytkownikiem)
 
 ---
 
@@ -1341,20 +1350,282 @@ def delete_user(db: Session, id: int):
 
 ---
 
-## 54. Architektura warstwowa – podsumowanie
+## 55. Relacje między modelami SQLAlchemy (ForeignKey)
+
+SQLAlchemy pozwala na definiowanie relacji między modelami za pomocą `ForeignKey` i `relationship`.
+
+### Model z relacją jeden-do-wielu
+
+```python
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
+
+class DbUser(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True)
+    password = Column(String)
+    items = relationship('DbArticle', back_populates='user')
+
+class DbArticle(Base):
+    __tablename__ = 'articles'
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    content = Column(String, index=True)
+    published = Column(Boolean, default=False)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    user = relationship('DbUser', back_populates='items')
+```
+
+### Co tu się dzieje
+
+1. **ForeignKey** → `user_id = Column(Integer, ForeignKey('users.id'))`
+   * Tworzy klucz obcy w bazie danych
+   * `'users.id'` → odniesienie do tabeli `users` i kolumny `id`
+   * Zapewnia integralność referencyjną (nie można usunąć użytkownika, który ma artykuły)
+
+2. **relationship** → `items = relationship('DbArticle', back_populates='user')`
+   * Tworzy relację na poziomie ORM (nie w bazie danych)
+   * `back_populates='user'` → dwukierunkowa relacja (użytkownik ma artykuły, artykuł ma użytkownika)
+   * Pozwala na dostęp do powiązanych obiektów: `user.items` lub `article.user`
+
+### Typy relacji
+
+* **One-to-Many** (jeden-do-wielu) → jeden użytkownik ma wiele artykułów
+* **Many-to-One** (wiele-do-jednego) → wiele artykułów należy do jednego użytkownika
+* **One-to-One** → jeden użytkownik ma jeden profil
+* **Many-to-Many** → wiele użytkowników ma wiele artykułów (przez tabelę pośrednią)
+
+### Użycie w kodzie
+
+```python
+# Tworzenie artykułu z user_id
+db_article = DbArticle(
+    title=article.title,
+    content=article.content,
+    published=article.published,
+    user_id=article.creator_id
+)
+
+# Dostęp do użytkownika przez relację
+article = db.query(DbArticle).first()
+user = article.user  # Automatycznie pobiera powiązanego użytkownika
+```
+
+---
+
+## 56. Zagnieżdżone modele Pydantic z relacjami
+
+Pydantic pozwala na zagnieżdżanie modeli, co jest szczególnie przydatne przy relacjach SQLAlchemy.
+
+### Schematy z relacjami
+
+```python
+class User(BaseModel):
+    id: int
+    username: str
+    class Config():
+        orm_mode = True
+
+class ArticleDisplay(BaseModel):
+    title: str
+    content: str
+    published: bool
+    user: User  # Zagnieżdżony model
+    class Config():
+        orm_mode = True
+```
+
+### Co to robi
+
+* `user: User` → pole zawierające zagnieżdżony obiekt `User`
+* `orm_mode = True` → pozwala na automatyczną konwersję z SQLAlchemy
+* FastAPI automatycznie serializuje zagnieżdżone obiekty do JSON
+
+### Przykładowa odpowiedź API
+
+```json
+{
+  "title": "Mój artykuł",
+  "content": "Treść artykułu",
+  "published": true,
+  "user": {
+    "id": 1,
+    "username": "john"
+  }
+}
+```
+
+### Relacja odwrotna (lista)
+
+```python
+class Article(BaseModel):
+    title: str
+    content: str
+    published: bool
+    class Config():
+        orm_mode = True
+
+class UserDisplay(BaseModel):
+    username: str
+    email: str
+    items: List[Article] = []  # Lista zagnieżdżonych artykułów
+    class Config():
+        orm_mode = True
+```
+
+### Zasada
+
+➡️ **Zagnieżdżone modele Pydantic** automatycznie konwertują relacje SQLAlchemy do zagnieżdżonych obiektów JSON.
+
+---
+
+## 57. Router artykułów (`router/article.py`)
+
+```python
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from schemas import ArticleBase, ArticleDisplay
+from db.database import get_db
+from db import db_article
+
+router = APIRouter(
+    prefix='/article',
+    tags=['article']
+)
+
+@router.post('/', response_model=ArticleDisplay)
+def create_article(article: ArticleBase, db: Session = Depends(get_db)):
+    return db_article.create_article(db, article)
+
+@router.get('/{id}', response_model=ArticleDisplay)
+def get_article(id: int, db: Session = Depends(get_db)):
+    return db_article.get_article(db, id)
+```
+
+### Endpointy
+
+#### POST `/article/` – tworzenie artykułu
+
+* `article: ArticleBase` → schemat wejściowy z `creator_id`
+* `response_model=ArticleDisplay` → zwraca artykuł z zagnieżdżonym użytkownikiem
+* Tworzy artykuł powiązany z użytkownikiem przez `user_id`
+
+#### GET `/article/{id}` – pobieranie artykułu
+
+* Zwraca artykuł z zagnieżdżonym obiektem użytkownika
+* Automatycznie pobiera relację `user` dzięki `orm_mode = True`
+
+---
+
+## 58. Logika biznesowa artykułów (`db/db_article.py`)
+
+```python
+from sqlalchemy.orm import Session
+from schemas import ArticleBase
+from db.models import DbArticle
+
+def create_article(db: Session, article: ArticleBase):
+    db_article = DbArticle(
+        title=article.title,
+        content=article.content,
+        published=article.published,
+        user_id=article.creator_id
+    )
+    db.add(db_article)
+    db.commit()
+    db.refresh(db_article)
+    return db_article
+
+def get_article(db: Session, id: int):
+    return db.query(DbArticle).filter(DbArticle.id == id).first()
+```
+
+### Co tu się dzieje
+
+1. **Tworzenie artykułu** → `DbArticle` z `user_id` (klucz obcy)
+2. **Relacja** → `user_id` łączy artykuł z użytkownikiem
+3. **Automatyczne ładowanie** → dzięki `relationship` w modelu, SQLAlchemy automatycznie ładuje powiązanego użytkownika
+
+### Dostęp do relacji
+
+```python
+article = db.query(DbArticle).filter(DbArticle.id == id).first()
+# article.user automatycznie pobiera powiązanego użytkownika
+# dzięki relationship('DbUser', back_populates='items')
+```
+
+---
+
+## 59. ForeignKey vs relationship – różnica
+
+### ForeignKey
+
+* **Poziom bazy danych** → tworzy klucz obcy w tabeli
+* **Integralność referencyjna** → baza danych sprawdza, czy referencja istnieje
+* **Wymagany** → musi być zdefiniowany w modelu z kluczem obcym
+
+```python
+user_id = Column(Integer, ForeignKey('users.id'))
+```
+
+### relationship
+
+* **Poziom ORM** → dostęp do powiązanych obiektów w Pythonie
+* **Nie tworzy kolumny w bazie** → tylko dostęp programistyczny
+* **Opcjonalny** → ale bardzo przydatny
+
+```python
+user = relationship('DbUser', back_populates='items')
+```
+
+### Zasada
+
+➡️ **ForeignKey** = struktura w bazie danych, **relationship** = dostęp w kodzie Python.
+
+---
+
+## 60. back_populates – dwukierunkowa relacja
+
+```python
+class DbUser(Base):
+    items = relationship('DbArticle', back_populates='user')
+
+class DbArticle(Base):
+    user = relationship('DbUser', back_populates='items')
+```
+
+### Co to robi
+
+* `back_populates` → tworzy dwukierunkową relację
+* `user.items` → lista artykułów użytkownika
+* `article.user` → użytkownik artykułu
+
+### Bez back_populates
+
+Relacja byłaby jednokierunkowa - moglibyśmy tylko `article.user`, ale nie `user.items`.
+
+### Zasada
+
+➡️ **back_populates** łączy dwie strony relacji, umożliwiając dostęp z obu stron.
+
+---
+
+## 61. Architektura warstwowa – podsumowanie
 
 Projekt używa **architektury warstwowej**:
 
 ```
-Router (router/user.py)
+Router (router/user.py, router/article.py)
     ↓
-Schematy (schemas.py) - walidacja
+Schematy (schemas.py) - walidacja + zagnieżdżone modele
     ↓
-Logika biznesowa (db/db_user.py)
+Logika biznesowa (db/db_user.py, db/db_article.py)
     ↓
-Modele SQLAlchemy (db/models.py)
+Modele SQLAlchemy (db/models.py) - z relacjami
     ↓
-Baza danych (SQLite)
+Baza danych (SQLite) - z kluczami obcymi
 ```
 
 ### Korzyści
@@ -1364,3 +1635,5 @@ Baza danych (SQLite)
 * **Łatwość utrzymania** → zmiany w jednej warstwie nie wpływają na inne
 * **Bezpieczeństwo** → hasła są hashowane, nie zwracane w odpowiedziach
 * **Reużywalność** → funkcje biznesowe można używać w różnych endpointach
+* **Relacje** → SQLAlchemy automatycznie zarządza relacjami między modelami
+* **Zagnieżdżone modele** → Pydantic automatycznie serializuje relacje do JSON
