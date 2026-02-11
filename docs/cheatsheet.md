@@ -59,8 +59,9 @@ class UserBase(BaseModel):
 class UserDisplay(BaseModel):
     username: str
     email: str
+    items: List[Article] = []
     class Config():
-        orm_mode = True  # konwersja z SQLAlchemy
+        orm_mode = True
 ```
 
 **Zasada:** Osobne schematy dla request i response (nigdy nie zwracaj hasła).
