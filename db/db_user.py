@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from schemas import UserBase
 from db.models import DbUser
 from db.hash import Hash
+from fastapi import HTTPException, status
 
 def create_user(db: Session, user: UserBase):
     db_user = DbUser(
@@ -19,12 +20,15 @@ def get_all_users(db: Session):
     return db.query(DbUser).all()
 
 def get_user(db: Session, id: int):
+    user = db.query(DbUser).filter(DbUser.id == id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'User with {id} not found')
     return db.query(DbUser).filter(DbUser.id == id).first()
 
 def update_user(db: Session, id: int, user: UserBase):
     db_user = db.query(DbUser).filter(DbUser.id == id).first()
     if not db_user:
-        return None
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'User with {id} not found')
     db_user.username = user.username
     db_user.email = user.email
     db_user.password = Hash.bcrypt(user.password)
@@ -35,8 +39,7 @@ def update_user(db: Session, id: int, user: UserBase):
 def delete_user(db: Session, id: int):
     db_user = db.query(DbUser).filter(DbUser.id == id).first()
     if not db_user:
-        return None
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'User with {id} not found')
     db.delete(db_user)
     db.commit()
     return {'message': 'User deleted successfully'}
-
