@@ -34,6 +34,7 @@ complete-fast-api/
 * `db/db_article.py` zawiera logikę biznesową dla artykułów
 * `db/hash.py` zawiera funkcjonalność hashowania haseł
 * `schemas.py` zawiera schematy Pydantic dla walidacji danych (w tym zagnieżdżone modele)
+* Aplikacja może definiować własne wyjątki i rejestrować dla nich exception handlery (np. zwracające niestandardowy kod HTTP z JSON)
 * `fastapi-practice.db` to plik bazy danych SQLite
 
 ---

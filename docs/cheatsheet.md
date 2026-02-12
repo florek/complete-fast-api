@@ -166,6 +166,12 @@ def get_user(id: int, db: Session = Depends(get_db)):
 
 ---
 
+## 🔧 Własne wyjątki i exception_handler
+
+Można zdefiniować własny wyjątek (dziedziczący po Exception) i zarejestrować dla niego handler na poziomie aplikacji. Handler przyjmuje `request` i `exc`, zwraca np. `JSONResponse` z dowolnym kodem statusu (np. 418) i treścią (np. `{'detail': exc.name}`). Dzięki temu wszystkie rzucenia tego wyjątku w aplikacji dają spójną odpowiedź.
+
+---
+
 ## 🏗️ Architektura Warstwowa
 
 ```
