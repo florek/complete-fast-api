@@ -241,6 +241,10 @@ class BlogModel(BaseModel):
 - `POST /user/{id}/update` - aktualizacja użytkownika
 - `DELETE /user/{id}/delete` - usunięcie użytkownika
 
+### Product
+- `GET /product/` - lista produktów (text/plain)
+- `GET /product/{id}` - pojedynczy produkt (HTML lub 404)
+
 ---
 
 ## 🚀 Flow Operacji CRUD

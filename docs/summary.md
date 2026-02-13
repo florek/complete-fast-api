@@ -18,6 +18,7 @@ complete-fast-api/
 │   ├── article.py
 │   ├── blog_get.py
 │   ├── blog_post.py
+│   ├── product.py
 │   └── user.py
 ├── main.py
 ├── schemas.py
@@ -1003,13 +1004,14 @@ if not user:
 ## 45. Rejestracja routerów w `main.py`
 
 ```python
-from router import user, article
+from router import user, article, product
 
 app = FastAPI()
 app.include_router(blog_get.router)
 app.include_router(blog_post.router)
 app.include_router(user.router)
 app.include_router(article.router)
+app.include_router(product.router)
 ```
 
 ### Endpointy dostępne
@@ -1024,6 +1026,10 @@ app.include_router(article.router)
 #### Article
 * `POST /article/` → tworzenie nowego artykułu
 * `GET /article/{id}` → pobieranie artykułu po ID (z zagnieżdżonym użytkownikiem)
+
+#### Product
+* `GET /product/` → lista produktów (zwraca tekstową listę)
+* `GET /product/{id}` → pojedynczy produkt (HTML lub 404 PlainText)
 
 ---
 
