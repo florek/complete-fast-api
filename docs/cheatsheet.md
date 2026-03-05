@@ -27,6 +27,7 @@ app.include_router(router)
 | **Path** | `{id}` w URL | `/blog/{id}` → `id: int` |
 | **Query** | Parametr funkcji (nie Path, nie Body) | `page: int = 1` |
 | **Body** | `BaseModel` lub `Body()` | `blog: BlogModel` |
+| **Header** | `Header()` | `x_token: Optional[List[str]] = Header(None)` |
 | **Depends** | `Depends(funkcja)` | `db: Session = Depends(get_db)` |
 
 **Zasada:** FastAPI rozpoznaje typ na podstawie kontekstu, nie kolejności.
@@ -243,6 +244,7 @@ class BlogModel(BaseModel):
 
 ### Product
 - `GET /product/` - lista produktów (text/plain)
+- `GET /product/withheader` - lista produktów z opcjonalnym nagłówkiem (Header)
 - `GET /product/{id}` - pojedynczy produkt (HTML lub 404)
 
 ---

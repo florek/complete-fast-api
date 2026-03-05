@@ -1029,6 +1029,7 @@ app.include_router(product.router)
 
 #### Product
 * `GET /product/` → lista produktów (zwraca tekstową listę)
+* `GET /product/withheader` → lista produktów z opcjonalnym nagłówkiem (Header)
 * `GET /product/{id}` → pojedynczy produkt (HTML lub 404 PlainText)
 
 ---
