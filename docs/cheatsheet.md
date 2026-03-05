@@ -30,7 +30,7 @@ app.include_router(router)
 | **Header** | `Header()` | `x_token: Optional[List[str]] = Header(None)` |
 | **Depends** | `Depends(funkcja)` | `db: Session = Depends(get_db)` |
 
-**Zasada:** FastAPI rozpoznaje typ na podstawie kontekstu, nie kolejności.
+**Zasada:** FastAPI rozpoznaje typ na podstawie kontekstu, nie kolejności. Nagłówki odpowiedzi można ustawiać przez `response.headers['X-Nazwa'] = wartość`.
 
 ---
 
